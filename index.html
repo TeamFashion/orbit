@@ -57,16 +57,22 @@
   .empty{text-align:center;padding:50px 20px;color:var(--text-faint);font-size:13px;}
   .empty b{display:block;color:var(--text-dim);font-family:var(--display);font-size:15px;margin-bottom:6px;font-weight:600;}
 
-  .subtabs{display:flex;gap:6px;margin-bottom:14px;}
+  .subtabs{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
+  .subtabs-row{display:flex;gap:6px;}
   .subtab{flex:1;text-align:center;white-space:nowrap;padding:9px 6px;border-radius:10px;background:var(--card);border:1px solid var(--line);font-size:12px;font-weight:700;color:var(--text-dim);cursor:pointer;font-family:var(--display);}
   .subtab.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);}
 
   .discount-sim{margin-top:12px;padding:12px 14px;background:var(--card-2);border:1px dashed var(--line);border-radius:12px;}
   .ds-label{font-size:10.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;}
-  .ds-row{display:flex;gap:8px;align-items:center;}
-  .ds-row input{flex:1;background:var(--card);border:1px solid var(--line);color:var(--text);padding:9px 11px;border-radius:9px;font-size:14px;font-family:var(--mono);outline:none;min-width:0;}
-  .ds-row input:focus{border-color:var(--accent);}
-  .ds-clear{padding:9px 14px;border-radius:9px;background:var(--card);border:1px solid var(--line);color:var(--text-dim);font-size:12.5px;font-weight:700;cursor:pointer;flex-shrink:0;}
+  .ds-lines{display:flex;flex-direction:column;gap:6px;}
+  .ds-line-row{display:flex;gap:6px;align-items:center;}
+  .ds-line-row .ds-line-label{flex:1.4;background:var(--card);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:9px;font-size:12.5px;font-family:var(--body);outline:none;min-width:0;}
+  .ds-line-row .ds-line-amount{flex:1;background:var(--card);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:9px;font-size:13px;font-family:var(--mono);outline:none;min-width:0;}
+  .ds-line-row input:focus{border-color:var(--accent);}
+  .ds-line-remove{width:28px;height:28px;flex-shrink:0;border-radius:8px;background:var(--card);border:1px solid var(--line);color:var(--text-faint);font-size:15px;line-height:1;cursor:pointer;}
+  .ds-actions-row{display:flex;gap:8px;margin-top:8px;}
+  .ds-add-line{flex:1;padding:8px;border:1px dashed var(--line);background:transparent;color:var(--text-dim);border-radius:9px;font-size:12px;cursor:pointer;font-family:var(--body);}
+  .ds-clear{padding:8px 14px;border-radius:9px;background:var(--card);border:1px solid var(--line);color:var(--text-dim);font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;}
   .ds-breakdown{margin-top:10px;font-size:12px;color:var(--text-dim);}
   .ds-breakdown .ds-line{display:flex;justify-content:space-between;padding:2px 0;}
   .ds-final{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;font-size:12.5px;}
@@ -127,8 +133,8 @@
   /* ---- stock/code view ---- */
   .stock-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px 14px;margin-bottom:8px;}
   .stock-card.out{border-color:var(--danger-line);}
-  .drag-item{transition:box-shadow .15s ease, transform .15s ease;}
-  .drag-item.dragging{box-shadow:0 14px 28px rgba(0,0,0,0.5);transform:scale(1.02) translateY(-3px);z-index:50;position:relative;}
+  .drag-item{transition:box-shadow .15s ease;}
+  .drag-item.dragging{box-shadow:0 14px 28px rgba(0,0,0,0.5);z-index:50;position:relative;}
   .drag-item.dragging .stock-card{border-color:var(--accent);}
   .drag-handle{width:30px;height:30px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text-faint);touch-action:none;cursor:grab;border-radius:8px;}
   .drag-handle:active{cursor:grabbing;background:var(--card-2);}
@@ -271,6 +277,7 @@
 
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script>
 const firebaseConfig = {
   apiKey: "AIzaSyDrKserpRcq4-9FlP0UgjXhFMItZETOpUE",
@@ -283,6 +290,7 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
+const auth = firebase.auth();
 </script>
 <script>
 /* ============ DATA ============ */
@@ -329,8 +337,8 @@ const DEFAULT_MODELS = [
 let models = [];
 let stock = {};
 let selectedTier = {}; // modelId -> tier index selected
-let discountSimCash = {}; // modelId -> extra discount (baht) for cash special price, preview only
-let discountSimTier = {}; // modelId -> extra discount (baht) for the selected installment tier, preview only
+let discountSimCash = {}; // modelId -> [{label, amount}, ...] extra discount lines for cash price, preview only
+let discountSimTier = {}; // modelId -> [{label, amount}, ...] extra discount lines for the selected tier, preview only
 let currentTab = 'price';
 let currentSeries = 'a'; // 'a' | 'reno' | 'find' | 'iot'
 let editingModelId = null;
@@ -361,6 +369,7 @@ const SERIES_LIST = [
   {id:'reno', label:'Reno Series'},
   {id:'find', label:'Find Series'},
   {id:'iot', label:'IoT'},
+  {id:'gift', label:'Gifts'},
 ];
 
 /* ============ HELPERS ============ */
@@ -414,6 +423,7 @@ function specLine(m){
   return isTb ? `${r}/${s}` : `${r}/${s}GB`;
 }
 function isIot(m){ return (m.series||'a') === 'iot'; }
+function isGift(m){ return (m.series||'a') === 'gift'; }
 function hasPrice(m){ return Number(m.normal||0) > 0 || Number(m.special||0) > 0; }
 function daysOutText(iso){
   if(!iso) return '';
@@ -448,9 +458,16 @@ function filterModels(){
   });
 }
 function subtabsHtml(){
-  return `<div class="subtabs">${SERIES_LIST.map(s=>
+  const half = Math.ceil(SERIES_LIST.length / 2);
+  const row1 = SERIES_LIST.slice(0, half);
+  const row2 = SERIES_LIST.slice(half);
+  const rowHtml = row => row.map(s=>
     `<div class="subtab ${s.id===currentSeries?'active':''}" onclick="switchSeries('${s.id}')">${s.label}</div>`
-  ).join('')}</div>`;
+  ).join('');
+  return `<div class="subtabs">
+    <div class="subtabs-row">${rowHtml(row1)}</div>
+    ${row2.length ? `<div class="subtabs-row">${rowHtml(row2)}</div>` : ''}
+  </div>`;
 }
 function switchSeries(series){
   currentSeries = series;
@@ -502,7 +519,7 @@ function renderPriceView(){
       : emptyHtml('ยังไม่มีรุ่นในหมวดนี้', 'เพิ่มรุ่นได้ที่แท็บ "จัดการรุ่น/สต๊อก"');
     el.innerHTML = html; return;
   }
-  html += list.map(m => isIot(m) ? iotCardHtml(m) : modelCardHtml(m)).join('');
+  html += list.map(m => isGift(m) ? giftCardHtml(m) : (isIot(m) ? iotCardHtml(m) : modelCardHtml(m))).join('');
   el.innerHTML = html;
 }
 function emptyHtml(title, sub, showClear){
@@ -542,25 +559,48 @@ function codeChipsHtml(m){
 // Discount simulator: lets staff preview a price after an ad-hoc extra discount,
 // to show the customer. Works against whichever tier is currently selected in the
 // "ลูกค้าเบอร์รายเดือน" ladder if the model has installment plans, or against the
-// cash special price otherwise. Not saved/exported — it's an in-session calculator
-// only, reset with the Clear button.
+// cash special price otherwise. Supports multiple labeled discount lines (e.g.
+// "ส่วนลดร้าน -500", "คูปอง -2000") that sum automatically, so staff can adjust
+// one line mid-sale without having to redo the whole total by hand. Not
+// saved/exported — it's an in-session calculator only.
+function getDiscountLines(kind, id){
+  const store = kind==='cash' ? discountSimCash : discountSimTier;
+  if(!Array.isArray(store[id]) || store[id].length===0){
+    store[id] = [{label:'', amount:0}];
+  }
+  return store[id];
+}
+function discountLineTotal(kind, id){
+  return getDiscountLines(kind, id).reduce((s,l)=> s + Math.max(0, Number(l.amount)||0), 0);
+}
+function discountLinesRowsHtml(kind, m){
+  const lines = getDiscountLines(kind, m.id);
+  return lines.map((line, i) => `
+    <div class="ds-line-row">
+      <input type="text" class="ds-line-label" placeholder="เช่น ส่วนลดร้าน (ไม่บังคับ)" value="${escapeHtml(line.label||'')}" oninput="updateDiscountLine('${kind}','${m.id}',${i},'label',this.value)">
+      <input type="number" class="ds-line-amount" min="0" placeholder="0" value="${line.amount||''}" oninput="updateDiscountLine('${kind}','${m.id}',${i},'amount',this.value)">
+      <button class="ds-line-remove" onclick="removeDiscountLine('${kind}','${m.id}',${i})" title="ลบส่วนลดนี้">×</button>
+    </div>`).join('');
+}
 function cashBreakdownHtml(m){
-  const disc = Number(discountSimCash[m.id]||0);
-  const final = Math.max(0, m.special - disc);
+  const lines = getDiscountLines('cash', m.id).filter(l=>Number(l.amount)>0);
+  const totalDisc = discountLineTotal('cash', m.id);
+  const final = Math.max(0, m.special - totalDisc);
   return `
     <div class="ds-line"><span>ราคาเครื่องเปล่าพิเศษ</span><span>${fmt(m.special)} บาท</span></div>
-    ${disc>0 ? `<div class="ds-line" style="color:var(--danger);"><span>ส่วนลดเพิ่มเติม</span><span>− ${fmt(disc)} บาท</span></div>` : ''}
+    ${lines.map(l=>`<div class="ds-line" style="color:var(--danger);"><span>${escapeHtml(l.label||'ส่วนลดเพิ่มเติม')}</span><span>− ${fmt(l.amount)} บาท</span></div>`).join('')}
+    ${lines.length>1 ? `<div class="ds-line" style="color:var(--danger);font-weight:700;border-top:1px dashed var(--line);padding-top:5px;margin-top:2px;"><span>รวมส่วนลด</span><span>− ${fmt(totalDisc)} บาท</span></div>` : ''}
     <div class="ds-final"><span>ราคาที่ลูกค้าจ่าย (ตัวอย่าง)</span><b>${fmt(final)} บาท</b></div>`;
 }
 function cashDiscountSimHtml(m){
   if(!hasPrice(m)) return '';
-  const disc = Number(discountSimCash[m.id]||0);
   return `
   <div class="discount-sim" onclick="event.stopPropagation();">
     <div class="ds-label">จำลองส่วนลดเพิ่มเติม (เครื่องเปล่าราคาพิเศษ)</div>
-    <div class="ds-row">
-      <input id="ds-input-cash-${m.id}" type="number" min="0" placeholder="ใส่ส่วนลดเพิ่ม (บาท)" value="${disc||''}" oninput="applyDiscountSim('cash','${m.id}', this.value)">
-      <button class="ds-clear" onclick="clearDiscountSim('cash','${m.id}')">Clear</button>
+    <div class="ds-lines" id="ds-lines-cash-${m.id}">${discountLinesRowsHtml('cash', m)}</div>
+    <div class="ds-actions-row">
+      <button class="ds-add-line" onclick="addDiscountLine('cash','${m.id}')">+ เพิ่มส่วนลด</button>
+      <button class="ds-clear" onclick="clearAllDiscountLines('cash','${m.id}')">Clear</button>
     </div>
     <div class="ds-breakdown" id="ds-breakdown-cash-${m.id}">${cashBreakdownHtml(m)}</div>
   </div>`;
@@ -569,57 +609,68 @@ function cashDiscountSimHtml(m){
 function tierBreakdownHtml(m){
   const sel = selectedTier[m.id] ?? 0;
   const t = m.tiers[sel];
-  const disc = Number(discountSimTier[m.id]||0);
-  const final = Math.max(0, t.p - disc);
+  const lines = getDiscountLines('tier', m.id).filter(l=>Number(l.amount)>0);
+  const totalDisc = discountLineTotal('tier', m.id);
+  const final = Math.max(0, t.p - totalDisc);
   return `
     <div class="ds-line"><span>ราคาโปรผ่อนเดือนละ ${t.m} บาท</span><span>${fmt(t.p)} บาท</span></div>
-    ${disc>0 ? `<div class="ds-line" style="color:var(--danger);"><span>ส่วนลดเพิ่มเติม</span><span>− ${fmt(disc)} บาท</span></div>` : ''}
+    ${lines.map(l=>`<div class="ds-line" style="color:var(--danger);"><span>${escapeHtml(l.label||'ส่วนลดเพิ่มเติม')}</span><span>− ${fmt(l.amount)} บาท</span></div>`).join('')}
+    ${lines.length>1 ? `<div class="ds-line" style="color:var(--danger);font-weight:700;border-top:1px dashed var(--line);padding-top:5px;margin-top:2px;"><span>รวมส่วนลด</span><span>− ${fmt(totalDisc)} บาท</span></div>` : ''}
     <div class="ds-final"><span>ราคาที่ลูกค้าจ่าย (ตัวอย่าง)</span><b>${fmt(final)} บาท</b></div>`;
 }
 function tierDiscountSimHtml(m){
   if(!(m.tiers && m.tiers.length)) return '';
-  const disc = Number(discountSimTier[m.id]||0);
   return `
   <div class="discount-sim" onclick="event.stopPropagation();">
     <div class="ds-label">จำลองส่วนลดเพิ่มเติม (ลูกค้าเบอร์รายเดือน ทุกเรทโปร)</div>
-    <div class="ds-row">
-      <input id="ds-input-tier-${m.id}" type="number" min="0" placeholder="ใส่ส่วนลดเพิ่ม (บาท)" value="${disc||''}" oninput="applyDiscountSim('tier','${m.id}', this.value)">
-      <button class="ds-clear" onclick="clearDiscountSim('tier','${m.id}')">Clear</button>
+    <div class="ds-lines" id="ds-lines-tier-${m.id}">${discountLinesRowsHtml('tier', m)}</div>
+    <div class="ds-actions-row">
+      <button class="ds-add-line" onclick="addDiscountLine('tier','${m.id}')">+ เพิ่มส่วนลด</button>
+      <button class="ds-clear" onclick="clearAllDiscountLines('tier','${m.id}')">Clear</button>
     </div>
     <div class="ds-breakdown" id="ds-breakdown-tier-${m.id}">${tierBreakdownHtml(m)}</div>
   </div>`;
 }
 
-function applyDiscountSim(kind, id, val){
-  const n = Math.max(0, Number(val)||0);
+function refreshDiscountSim(kind, id){
   const m = models.find(x=>x.id===id);
   if(!m) return;
-  if(kind==='cash'){
-    discountSimCash[id] = n;
-    const el = document.getElementById('ds-breakdown-cash-'+id);
-    if(el) el.innerHTML = cashBreakdownHtml(m);
-  } else {
-    discountSimTier[id] = n;
-    const el = document.getElementById('ds-breakdown-tier-'+id);
-    if(el) el.innerHTML = tierBreakdownHtml(m);
-  }
+  const linesEl = document.getElementById(`ds-lines-${kind}-${id}`);
+  if(linesEl) linesEl.innerHTML = discountLinesRowsHtml(kind, m);
+  const bdEl = document.getElementById(`ds-breakdown-${kind}-${id}`);
+  if(bdEl) bdEl.innerHTML = kind==='cash' ? cashBreakdownHtml(m) : tierBreakdownHtml(m);
 }
-function clearDiscountSim(kind, id){
+function refreshDiscountBreakdownOnly(kind, id){
   const m = models.find(x=>x.id===id);
   if(!m) return;
-  if(kind==='cash'){
-    discountSimCash[id] = 0;
-    const input = document.getElementById('ds-input-cash-'+id);
-    if(input) input.value = '';
-    const el = document.getElementById('ds-breakdown-cash-'+id);
-    if(el) el.innerHTML = cashBreakdownHtml(m);
+  const bdEl = document.getElementById(`ds-breakdown-${kind}-${id}`);
+  if(bdEl) bdEl.innerHTML = kind==='cash' ? cashBreakdownHtml(m) : tierBreakdownHtml(m);
+}
+function addDiscountLine(kind, id){
+  const lines = getDiscountLines(kind, id);
+  lines.push({label:'', amount:0});
+  refreshDiscountSim(kind, id);
+}
+function removeDiscountLine(kind, id, idx){
+  const lines = getDiscountLines(kind, id);
+  if(lines.length<=1){
+    lines[0] = {label:'', amount:0}; // keep at least one row; just clear it
   } else {
-    discountSimTier[id] = 0;
-    const input = document.getElementById('ds-input-tier-'+id);
-    if(input) input.value = '';
-    const el = document.getElementById('ds-breakdown-tier-'+id);
-    if(el) el.innerHTML = tierBreakdownHtml(m);
+    lines.splice(idx,1);
   }
+  refreshDiscountSim(kind, id);
+}
+function updateDiscountLine(kind, id, idx, field, value){
+  const lines = getDiscountLines(kind, id);
+  if(!lines[idx]) return;
+  if(field==='amount') lines[idx].amount = Math.max(0, Number(value)||0);
+  else lines[idx].label = value;
+  refreshDiscountBreakdownOnly(kind, id); // don't rebuild the rows — keeps typing focus intact
+}
+function clearAllDiscountLines(kind, id){
+  const store = kind==='cash' ? discountSimCash : discountSimTier;
+  store[id] = [{label:'', amount:0}];
+  refreshDiscountSim(kind, id);
 }
 
 function modelCardHtml(m){
@@ -662,7 +713,7 @@ function iotCardHtml(m){
   const info = modelStockInfo(m.id);
   const { codes, chips: codeChips } = codeChipsHtml(m);
   return `
-  <div class="mcard ${info.out?'out':''}">
+  <div class="mcard ${info.out?'out':''}" id="card-${m.id}">
     <div class="mcard-head" style="cursor:default;">
       <div class="mline">
         <span class="nm">${escapeHtml(m.name)}</span>
@@ -676,6 +727,31 @@ function iotCardHtml(m){
     </div>
     <div class="mcard-inner" style="padding-top:0;">
       ${cashDiscountSimHtml(m)}
+      ${m.tiers && m.tiers.length ? tierHtml(m) : ''}
+      ${m.tiers && m.tiers.length ? tierDiscountSimHtml(m) : ''}
+      ${codes.length ? `<div class="code-list">${codeChips}</div>` : `<div class="stock-label">ยังไม่มีข้อมูลรหัสสินค้า/สต๊อก</div>`}
+    </div>
+  </div>`;
+}
+
+// Gift / freebie items — no price, no promo, just name + product code + qty left.
+function giftCardHtml(m){
+  const info = modelStockInfo(m.id);
+  const { codes, chips: codeChips } = codeChipsHtml(m);
+  return `
+  <div class="mcard ${info.out?'out':''}" id="card-${m.id}">
+    <div class="mcard-head" style="cursor:default;">
+      <div class="mline">
+        <span class="nm">${escapeHtml(m.name)}</span>
+        <span class="spec">ของแถม</span>
+      </div>
+      <div class="mcard-sub" style="justify-content:flex-end;">
+        <div class="head-right">
+          ${info.out ? `<span class="out-badge">หมดสต๊อก · ${info.since? daysOutNum(info.since)+' วัน' : ''}</span>` : ''}
+        </div>
+      </div>
+    </div>
+    <div class="mcard-inner" style="padding-top:0;">
       ${codes.length ? `<div class="code-list">${codeChips}</div>` : `<div class="stock-label">ยังไม่มีข้อมูลรหัสสินค้า/สต๊อก</div>`}
     </div>
   </div>`;
@@ -709,8 +785,12 @@ function selectTier(id, i){
   // the tier discount simulator reads the currently selected tier's price, so refresh it too
   const breakdownEl = document.getElementById('ds-breakdown-tier-'+id);
   if(breakdownEl) breakdownEl.innerHTML = tierBreakdownHtml(m);
-  const body = document.querySelector('#card-'+id+' .mcard-body');
-  if(document.getElementById('card-'+id).classList.contains('open')) body.style.maxHeight = body.scrollHeight + 'px';
+  // recalc expand height — only applies to collapsible (phone) cards, IoT cards are always-open
+  const cardEl = document.getElementById('card-'+id);
+  if(cardEl && cardEl.classList.contains('open')){
+    const body = cardEl.querySelector('.mcard-body');
+    if(body) body.style.maxHeight = body.scrollHeight + 'px';
+  }
 }
 function toggleCard(id){
   document.getElementById('card-'+id).classList.toggle('open');
@@ -784,7 +864,7 @@ function manageCardHtml(m, searchActive){
         </div>
       </div>
     </div>
-    <div class="mi-sub" style="margin-bottom:8px;">${hasPrice(m) ? `ปกติ ${fmt(m.normal)} · พิเศษ ${fmt(m.special)} บาท` : 'ยังไม่ระบุราคา'}</div>
+    <div class="mi-sub" style="margin-bottom:8px;">${isGift(m) ? 'ของแถม (ไม่มีราคา)' : (hasPrice(m) ? `ปกติ ${fmt(m.normal)} · พิเศษ ${fmt(m.special)} บาท` : 'ยังไม่ระบุราคา')}</div>
     ${rows || `<div style="font-size:12px;color:var(--text-faint);padding:6px 0;">ยังไม่มีข้อมูลรหัสสินค้า/สี</div>`}
     <button class="add-color-btn" onclick="openColorModal('${m.id}', null)">+ เพิ่มสี / รหัสสินค้า</button>
   </div>
@@ -792,6 +872,8 @@ function manageCardHtml(m, searchActive){
 }
 /* ============ DRAG TO REORDER (press-and-hold on grip handle) ============ */
 const HOLD_MS = 220; // how long to hold before drag activates (distinguishes from scroll/tap)
+let dragCtx = null; // active drag state, or null when not dragging
+
 function initDragReorder(){
   const container = document.getElementById('view-manage');
   container.addEventListener('pointerdown', onDragHandlePointerDown);
@@ -808,7 +890,7 @@ function onDragHandlePointerDown(e){
 
   const holdTimer = setTimeout(()=>{
     activated = true;
-    item.classList.add('dragging');
+    startDrag(item, startY);
     try{ handle.setPointerCapture(pointerId); }catch(_){}
   }, HOLD_MS);
 
@@ -821,28 +903,13 @@ function onDragHandlePointerDown(e){
       return;
     }
     ev.preventDefault();
-    const container2 = document.getElementById('view-manage');
-    const items = Array.from(container2.querySelectorAll('.drag-item'));
-    const y = ev.clientY;
-    for(const other of items){
-      if(other === item) continue;
-      const rect = other.getBoundingClientRect();
-      const middle = rect.top + rect.height/2;
-      if(y < middle && other.previousElementSibling !== item){
-        container2.insertBefore(item, other);
-        break;
-      } else if(y >= middle && other.nextElementSibling !== item){
-        container2.insertBefore(item, other.nextElementSibling);
-        break;
-      }
-    }
+    updateDrag(ev.clientY);
   }
   function onUp(){
     clearTimeout(holdTimer);
     if(activated){
-      item.classList.remove('dragging');
       try{ handle.releasePointerCapture(pointerId); }catch(_){}
-      finalizeReorder();
+      endDrag();
     }
     cleanup();
   }
@@ -855,6 +922,72 @@ function onDragHandlePointerDown(e){
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onUp);
 }
+
+// The dragged card tracks the pointer directly (no snapping/reflow while moving),
+// and other cards slide smoothly out of the way with a CSS transition. The DOM
+// order itself is only actually changed once, on drop — this is what makes the
+// drag feel smooth instead of jumpy, especially since cards have different
+// heights (models with more colors are taller).
+function startDrag(item, startY){
+  const container = document.getElementById('view-manage');
+  const items = Array.from(container.querySelectorAll('.drag-item'));
+  const rects = items.map(el => el.getBoundingClientRect());
+  const originalIndex = items.indexOf(item);
+  const draggedHeight = originalIndex < items.length-1
+    ? rects[originalIndex+1].top - rects[originalIndex].top
+    : rects[originalIndex].height + 8;
+
+  dragCtx = { item, startY, items, rects, originalIndex, currentIndex: originalIndex, draggedHeight };
+
+  item.classList.add('dragging');
+  item.style.willChange = 'transform';
+  items.forEach(el=>{ if(el!==item) el.style.transition = 'transform .15s ease'; });
+}
+
+function updateDrag(clientY){
+  const ctx = dragCtx;
+  if(!ctx) return;
+  const deltaY = clientY - ctx.startY;
+  ctx.item.style.transform = `translateY(${deltaY}px) scale(1.02)`;
+
+  const draggedCenter = ctx.rects[ctx.originalIndex].top + ctx.rects[ctx.originalIndex].height/2 + deltaY;
+  let newIndex = ctx.originalIndex;
+
+  ctx.items.forEach((el, i)=>{
+    if(i === ctx.originalIndex) return;
+    const r = ctx.rects[i];
+    const center = r.top + r.height/2;
+    let shift = 0;
+    if(i < ctx.originalIndex && draggedCenter < center){
+      shift = ctx.draggedHeight;
+      newIndex = Math.min(newIndex, i);
+    } else if(i > ctx.originalIndex && draggedCenter > center){
+      shift = -ctx.draggedHeight;
+      newIndex = Math.max(newIndex, i);
+    }
+    el.style.transform = shift ? `translateY(${shift}px)` : '';
+  });
+  ctx.currentIndex = newIndex;
+}
+
+function endDrag(){
+  const ctx = dragCtx;
+  if(!ctx) return;
+  const container = document.getElementById('view-manage');
+
+  ctx.items.forEach(el=>{ el.style.transform=''; el.style.transition=''; el.style.willChange=''; });
+  ctx.item.classList.remove('dragging');
+
+  if(ctx.currentIndex !== ctx.originalIndex){
+    const newOrder = ctx.items.slice();
+    newOrder.splice(ctx.originalIndex, 1);
+    newOrder.splice(ctx.currentIndex, 0, ctx.item);
+    newOrder.forEach(el => container.appendChild(el)); // re-append in the new order
+    finalizeReorder();
+  }
+  dragCtx = null;
+}
+
 function finalizeReorder(){
   const idsInOrder = Array.from(document.querySelectorAll('#view-manage .drag-item')).map(el=>el.dataset.id);
   const updates = {};
@@ -1051,6 +1184,7 @@ function computeOosGroups(){
   let totalSkuOut = 0, totalModelsFullyOut = 0;
   const groups = [];
   models.forEach(m=>{
+    if(isGift(m)) return; // gifts never appear in the out-of-stock summary
     const arr = stock[m.id]||[];
     const outEntries = arr.filter(c=>Number(c.qty||0)===0);
     if(outEntries.length===0) return;
@@ -1059,7 +1193,12 @@ function computeOosGroups(){
     totalSkuOut += outEntries.length;
     groups.push({model:m, outEntries, fullyOut:info.out});
   });
-  const sorted = groups.slice().sort((a,b)=> (b.fullyOut - a.fullyOut));
+  const sorted = groups.slice().sort((a,b)=>{
+    const aIot = isIot(a.model) ? 1 : 0;
+    const bIot = isIot(b.model) ? 1 : 0;
+    if(aIot !== bIot) return aIot - bIot; // non-IoT first, IoT pushed to the bottom
+    return (a.model.normal||0) - (b.model.normal||0);
+  });
   return { groups: sorted, totalSkuOut, totalModelsFullyOut };
 }
 
@@ -1077,7 +1216,7 @@ function renderOosView(){
 
   let html = `<div class="oos-summary-top">
     <div class="big">${totalSkuOut}</div>
-    <div class="cap">รหัสสินค้า/สี ที่หมดสต๊อก จาก ${models.length} รุ่นที่มีข้อมูล · ${totalModelsFullyOut} รุ่นหมดสต๊อกทั้งหมดทุกสี</div>
+    <div class="cap">รหัสสินค้า/สี ที่หมดสต๊อก จาก ${models.filter(m=>!isGift(m)).length} รุ่นที่มีข้อมูล · ${totalModelsFullyOut} รุ่นหมดสต๊อกทั้งหมดทุกสี</div>
   </div>
   <button class="add-btn" id="oosCopyBtn" onclick="copyOosList()" style="background:var(--card-2);color:var(--text);border:1px solid var(--line);">
     <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -1313,12 +1452,29 @@ function attachRealtimeListeners(){
   db.ref('meta/lastUpdated').on('value', snap=> renderLastUpdated(snap.val()));
 }
 
+// Signs in anonymously with Firebase Auth. This doesn't identify a specific
+// person — it's a silent, invisible check-in the app does with Firebase so
+// the security rules can require "auth != null" and block anyone hitting the
+// database URL directly outside the app (which is the actual gap we found).
+function ensureSignedIn(){
+  return new Promise((resolve, reject)=>{
+    let unsub; // may still be undefined if the callback fires synchronously below
+    unsub = auth.onAuthStateChanged(user=>{
+      if(user){ if(unsub) unsub(); resolve(user); }
+    }, reject);
+    auth.signInAnonymously().catch(reject);
+  });
+}
+
 /* ============ INIT ============ */
-seedIfEmpty().then(attachRealtimeListeners).catch(err=>{
-  console.error('Firebase init error:', err);
-  toast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่');
-  attachRealtimeListeners(); // still attach listeners so it recovers once connection returns
-});
+ensureSignedIn()
+  .then(seedIfEmpty)
+  .then(attachRealtimeListeners)
+  .catch(err=>{
+    console.error('Firebase init error:', err);
+    toast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่');
+    attachRealtimeListeners(); // still attach listeners so it recovers once connection/auth returns
+  });
 initDragReorder();
 initAuth();
 </script>
