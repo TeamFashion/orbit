@@ -106,6 +106,7 @@
   .ladder-label{font-size:10.5px;color:var(--text-faint);margin:12px 0 8px;text-transform:uppercase;letter-spacing:.04em;}
   .chips{display:flex;flex-wrap:wrap;gap:6px;}
   .chip{padding:6px 10px;border-radius:8px;background:var(--card-2);border:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--text-dim);cursor:pointer;}
+  .chip.chip-full{flex:1;text-align:center;}
   .chip.sel{background:var(--accent);color:#06231A;border-color:var(--accent);font-weight:700;}
   .ladder-result{margin-top:12px;padding:12px 14px;background:var(--accent-dim);border:1px solid rgba(23,208,138,0.3);border-radius:12px;}
   .ladder-result .lr-price{font-family:var(--mono);font-weight:700;font-size:20px;color:var(--accent);}
@@ -735,14 +736,15 @@ function priceOptionPrice(m, sel){
 }
 function tierHtml(m){
   const sel = selectedTier[m.id] ?? -1; // -1 = cash special price, otherwise index into m.tiers
-  const cashChip = `<div class="chip ${sel===-1?'sel':''}" onclick="event.stopPropagation();selectPriceOption('${m.id}',-1)">เครื่องเปล่าราคาพิเศษ</div>`;
+  const cashChip = `<div class="chip chip-full ${sel===-1?'sel':''}" onclick="event.stopPropagation();selectPriceOption('${m.id}',-1)">เครื่องเปล่าราคาพิเศษ</div>`;
   const tierChips = m.tiers.map((t,i)=>`<div class="chip ${sel===i?'sel':''}" onclick="event.stopPropagation();selectPriceOption('${m.id}',${i})">฿${t.m}/ด.</div>`).join('');
   const price = priceOptionPrice(m, sel);
   const savedAmt = m.normal - price;
   const pct = Math.min(100, Math.max(4, Math.round((savedAmt / m.normal) * 100)));
   return `
   <div class="ladder-label">Promotion</div>
-  <div class="chips">${cashChip}${tierChips}</div>
+  <div class="chips">${cashChip}</div>
+  <div class="chips" style="margin-top:6px;">${tierChips}</div>
   <div class="ladder-result" id="lr-${m.id}">
     <div class="lr-price">${fmt(price)} บาท</div>
     <div class="lr-bar"><div class="lr-fill" style="width:${pct}%"></div></div>
