@@ -64,7 +64,7 @@
 
   .discount-sim{margin-top:12px;padding:12px 14px;background:var(--card-2);border:1px dashed var(--line);border-radius:12px;}
   .ds-label{font-size:10.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;}
-  .ds-lines{display:flex;flex-direction:column;gap:6px;}
+  .ds-lines{display:flex;flex-direction:column;gap:6px;max-height:168px;overflow-y:auto;padding-right:2px;}
   .ds-line-row{display:flex;gap:6px;align-items:center;}
   .ds-line-row .ds-line-label{flex:1.4;background:var(--card);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:9px;font-size:12.5px;font-family:var(--body);outline:none;min-width:0;}
   .ds-line-row .ds-line-amount{flex:1;background:var(--card);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:9px;font-size:13px;font-family:var(--mono);outline:none;min-width:0;}
@@ -337,8 +337,7 @@ const DEFAULT_MODELS = [
 let models = [];
 let stock = {};
 let selectedTier = {}; // modelId -> tier index selected
-let discountSimCash = {}; // modelId -> [{label, amount}, ...] extra discount lines for cash price, preview only
-let discountSimTier = {}; // modelId -> [{label, amount}, ...] extra discount lines for the selected tier, preview only
+let discountSim = {}; // modelId -> [{label, amount}, ...] extra discount lines, shared between cash and installment views, preview only
 let currentTab = 'price';
 let currentSeries = 'a'; // 'a' | 'reno' | 'find' | 'iot'
 let editingModelId = null;
@@ -557,120 +556,97 @@ function codeChipsHtml(m){
 }
 
 // Discount simulator: lets staff preview a price after an ad-hoc extra discount,
-// to show the customer. Works against whichever tier is currently selected in the
-// "ลูกค้าเบอร์รายเดือน" ladder if the model has installment plans, or against the
-// cash special price otherwise. Supports multiple labeled discount lines (e.g.
-// "ส่วนลดร้าน -500", "คูปอง -2000") that sum automatically, so staff can adjust
-// one line mid-sale without having to redo the whole total by hand. Not
-// saved/exported — it's an in-session calculator only.
-function getDiscountLines(kind, id){
-  const store = kind==='cash' ? discountSimCash : discountSimTier;
-  if(!Array.isArray(store[id]) || store[id].length===0){
-    store[id] = [{label:'', amount:0}];
+// to show the customer. One shared set of discount lines applies to both the
+// cash special price AND whichever installment tier is currently selected —
+// so staff only enter a discount once and see both final prices update.
+// Supports multiple labeled lines (e.g. "ส่วนลดร้าน -500", "คูปอง -2000") that
+// sum automatically, so adjusting one line mid-sale doesn't require redoing the
+// whole total by hand. Not saved/exported — it's an in-session calculator only.
+function getDiscountLines(id){
+  if(!Array.isArray(discountSim[id]) || discountSim[id].length===0){
+    discountSim[id] = [{label:'', amount:0}];
   }
-  return store[id];
+  return discountSim[id];
 }
-function discountLineTotal(kind, id){
-  return getDiscountLines(kind, id).reduce((s,l)=> s + Math.max(0, Number(l.amount)||0), 0);
+function discountLineTotal(id){
+  return getDiscountLines(id).reduce((s,l)=> s + Math.max(0, Number(l.amount)||0), 0);
 }
-function discountLinesRowsHtml(kind, m){
-  const lines = getDiscountLines(kind, m.id);
+function discountLinesRowsHtml(m){
+  const lines = getDiscountLines(m.id);
   return lines.map((line, i) => `
     <div class="ds-line-row">
-      <input type="text" class="ds-line-label" placeholder="เช่น ส่วนลดร้าน (ไม่บังคับ)" value="${escapeHtml(line.label||'')}" oninput="updateDiscountLine('${kind}','${m.id}',${i},'label',this.value)">
-      <input type="number" class="ds-line-amount" min="0" placeholder="0" value="${line.amount||''}" oninput="updateDiscountLine('${kind}','${m.id}',${i},'amount',this.value)">
-      <button class="ds-line-remove" onclick="removeDiscountLine('${kind}','${m.id}',${i})" title="ลบส่วนลดนี้">×</button>
+      <input type="text" class="ds-line-label" placeholder="เช่น ส่วนลดร้าน (ไม่บังคับ)" value="${escapeHtml(line.label||'')}" oninput="updateDiscountLine('${m.id}',${i},'label',this.value)">
+      <input type="number" class="ds-line-amount" min="0" placeholder="0" value="${line.amount||''}" oninput="updateDiscountLine('${m.id}',${i},'amount',this.value)">
+      <button class="ds-line-remove" onclick="removeDiscountLine('${m.id}',${i})" title="ลบส่วนลดนี้">×</button>
     </div>`).join('');
 }
-function cashBreakdownHtml(m){
-  const lines = getDiscountLines('cash', m.id).filter(l=>Number(l.amount)>0);
-  const totalDisc = discountLineTotal('cash', m.id);
-  const final = Math.max(0, m.special - totalDisc);
+function sharedDiscountBreakdownHtml(m){
+  const lines = getDiscountLines(m.id).filter(l=>Number(l.amount)>0);
+  const totalDisc = discountLineTotal(m.id);
+  const hasTiers = m.tiers && m.tiers.length;
+  const sel = selectedTier[m.id] ?? -1;
+  const useCash = !hasTiers || sel === -1;
+  const basePrice = useCash ? m.special : m.tiers[sel].p;
+  const baseLabel = useCash ? 'ราคาเครื่องเปล่าพิเศษ' : `ราคาโปรผ่อนเดือนละ ${m.tiers[sel].m} บาท`;
+  const final = Math.max(0, basePrice - totalDisc);
   return `
-    <div class="ds-line"><span>ราคาเครื่องเปล่าพิเศษ</span><span>${fmt(m.special)} บาท</span></div>
+    <div class="ds-line"><span>${baseLabel}</span><span>${fmt(basePrice)} บาท</span></div>
     ${lines.map(l=>`<div class="ds-line" style="color:var(--danger);"><span>${escapeHtml(l.label||'ส่วนลดเพิ่มเติม')}</span><span>− ${fmt(l.amount)} บาท</span></div>`).join('')}
     ${lines.length>1 ? `<div class="ds-line" style="color:var(--danger);font-weight:700;border-top:1px dashed var(--line);padding-top:5px;margin-top:2px;"><span>รวมส่วนลด</span><span>− ${fmt(totalDisc)} บาท</span></div>` : ''}
     <div class="ds-final"><span>ราคาที่ลูกค้าจ่าย (ตัวอย่าง)</span><b>${fmt(final)} บาท</b></div>`;
 }
-function cashDiscountSimHtml(m){
+function sharedDiscountSimHtml(m){
   if(!hasPrice(m)) return '';
   return `
   <div class="discount-sim" onclick="event.stopPropagation();">
-    <div class="ds-label">จำลองส่วนลดเพิ่มเติม (เครื่องเปล่าราคาพิเศษ)</div>
-    <div class="ds-lines" id="ds-lines-cash-${m.id}">${discountLinesRowsHtml('cash', m)}</div>
+    <div class="ds-label">จำลองส่วนลดเพิ่มเติม</div>
+    <div class="ds-lines" id="ds-lines-${m.id}">${discountLinesRowsHtml(m)}</div>
     <div class="ds-actions-row">
-      <button class="ds-add-line" onclick="addDiscountLine('cash','${m.id}')">+ เพิ่มส่วนลด</button>
-      <button class="ds-clear" onclick="clearAllDiscountLines('cash','${m.id}')">Clear</button>
+      <button class="ds-add-line" onclick="addDiscountLine('${m.id}')">+ เพิ่มส่วนลด</button>
+      <button class="ds-clear" onclick="clearAllDiscountLines('${m.id}')">Clear</button>
     </div>
-    <div class="ds-breakdown" id="ds-breakdown-cash-${m.id}">${cashBreakdownHtml(m)}</div>
+    <div class="ds-breakdown" id="ds-breakdown-${m.id}">${sharedDiscountBreakdownHtml(m)}</div>
   </div>`;
 }
 
-function tierBreakdownHtml(m){
-  const sel = selectedTier[m.id] ?? 0;
-  const t = m.tiers[sel];
-  const lines = getDiscountLines('tier', m.id).filter(l=>Number(l.amount)>0);
-  const totalDisc = discountLineTotal('tier', m.id);
-  const final = Math.max(0, t.p - totalDisc);
-  return `
-    <div class="ds-line"><span>ราคาโปรผ่อนเดือนละ ${t.m} บาท</span><span>${fmt(t.p)} บาท</span></div>
-    ${lines.map(l=>`<div class="ds-line" style="color:var(--danger);"><span>${escapeHtml(l.label||'ส่วนลดเพิ่มเติม')}</span><span>− ${fmt(l.amount)} บาท</span></div>`).join('')}
-    ${lines.length>1 ? `<div class="ds-line" style="color:var(--danger);font-weight:700;border-top:1px dashed var(--line);padding-top:5px;margin-top:2px;"><span>รวมส่วนลด</span><span>− ${fmt(totalDisc)} บาท</span></div>` : ''}
-    <div class="ds-final"><span>ราคาที่ลูกค้าจ่าย (ตัวอย่าง)</span><b>${fmt(final)} บาท</b></div>`;
-}
-function tierDiscountSimHtml(m){
-  if(!(m.tiers && m.tiers.length)) return '';
-  return `
-  <div class="discount-sim" onclick="event.stopPropagation();">
-    <div class="ds-label">จำลองส่วนลดเพิ่มเติม (ลูกค้าเบอร์รายเดือน ทุกเรทโปร)</div>
-    <div class="ds-lines" id="ds-lines-tier-${m.id}">${discountLinesRowsHtml('tier', m)}</div>
-    <div class="ds-actions-row">
-      <button class="ds-add-line" onclick="addDiscountLine('tier','${m.id}')">+ เพิ่มส่วนลด</button>
-      <button class="ds-clear" onclick="clearAllDiscountLines('tier','${m.id}')">Clear</button>
-    </div>
-    <div class="ds-breakdown" id="ds-breakdown-tier-${m.id}">${tierBreakdownHtml(m)}</div>
-  </div>`;
-}
-
-function refreshDiscountSim(kind, id){
+function refreshDiscountSim(id){
   const m = models.find(x=>x.id===id);
   if(!m) return;
-  const linesEl = document.getElementById(`ds-lines-${kind}-${id}`);
-  if(linesEl) linesEl.innerHTML = discountLinesRowsHtml(kind, m);
-  const bdEl = document.getElementById(`ds-breakdown-${kind}-${id}`);
-  if(bdEl) bdEl.innerHTML = kind==='cash' ? cashBreakdownHtml(m) : tierBreakdownHtml(m);
+  const linesEl = document.getElementById(`ds-lines-${id}`);
+  if(linesEl) linesEl.innerHTML = discountLinesRowsHtml(m);
+  const bdEl = document.getElementById(`ds-breakdown-${id}`);
+  if(bdEl) bdEl.innerHTML = sharedDiscountBreakdownHtml(m);
 }
-function refreshDiscountBreakdownOnly(kind, id){
+function refreshDiscountBreakdownOnly(id){
   const m = models.find(x=>x.id===id);
   if(!m) return;
-  const bdEl = document.getElementById(`ds-breakdown-${kind}-${id}`);
-  if(bdEl) bdEl.innerHTML = kind==='cash' ? cashBreakdownHtml(m) : tierBreakdownHtml(m);
+  const bdEl = document.getElementById(`ds-breakdown-${id}`);
+  if(bdEl) bdEl.innerHTML = sharedDiscountBreakdownHtml(m);
 }
-function addDiscountLine(kind, id){
-  const lines = getDiscountLines(kind, id);
+function addDiscountLine(id){
+  const lines = getDiscountLines(id);
   lines.push({label:'', amount:0});
-  refreshDiscountSim(kind, id);
+  refreshDiscountSim(id);
 }
-function removeDiscountLine(kind, id, idx){
-  const lines = getDiscountLines(kind, id);
+function removeDiscountLine(id, idx){
+  const lines = getDiscountLines(id);
   if(lines.length<=1){
     lines[0] = {label:'', amount:0}; // keep at least one row; just clear it
   } else {
     lines.splice(idx,1);
   }
-  refreshDiscountSim(kind, id);
+  refreshDiscountSim(id);
 }
-function updateDiscountLine(kind, id, idx, field, value){
-  const lines = getDiscountLines(kind, id);
+function updateDiscountLine(id, idx, field, value){
+  const lines = getDiscountLines(id);
   if(!lines[idx]) return;
   if(field==='amount') lines[idx].amount = Math.max(0, Number(value)||0);
   else lines[idx].label = value;
-  refreshDiscountBreakdownOnly(kind, id); // don't rebuild the rows — keeps typing focus intact
+  refreshDiscountBreakdownOnly(id); // don't rebuild the rows — keeps typing focus intact
 }
-function clearAllDiscountLines(kind, id){
-  const store = kind==='cash' ? discountSimCash : discountSimTier;
-  store[id] = [{label:'', amount:0}];
-  refreshDiscountSim(kind, id);
+function clearAllDiscountLines(id){
+  discountSim[id] = [{label:'', amount:0}];
+  refreshDiscountSim(id);
 }
 
 function modelCardHtml(m){
@@ -697,10 +673,9 @@ function modelCardHtml(m){
       <div class="mcard-inner">
         ${hasPrice(m) ? `
         <div class="row-line"><span>ราคาปกติ (RRP)</span><b>${fmt(m.normal)} บาท</b></div>
-        <div class="row-line"><span>เครื่องเปล่าราคาพิเศษ</span><b>${fmt(m.special)} บาท</b></div>` : ''}
-        ${cashDiscountSimHtml(m)}
+        ${!(m.tiers && m.tiers.length) ? `<div class="row-line"><span>เครื่องเปล่าราคาพิเศษ</span><b>${fmt(m.special)} บาท</b></div>` : ''}` : ''}
         ${m.tiers && m.tiers.length ? tierHtml(m) : ''}
-        ${tierDiscountSimHtml(m)}
+        ${sharedDiscountSimHtml(m)}
         ${codes.length ? `<div class="stock-label">สต๊อกตามรหัสสินค้า/สี</div><div class="code-list">${codeChips}</div>` : `<div class="stock-label">ยังไม่มีข้อมูลรหัสสินค้า/สต๊อก</div>`}
       </div>
     </div>
@@ -726,9 +701,8 @@ function iotCardHtml(m){
       </div>
     </div>
     <div class="mcard-inner" style="padding-top:0;">
-      ${cashDiscountSimHtml(m)}
       ${m.tiers && m.tiers.length ? tierHtml(m) : ''}
-      ${m.tiers && m.tiers.length ? tierDiscountSimHtml(m) : ''}
+      ${sharedDiscountSimHtml(m)}
       ${codes.length ? `<div class="code-list">${codeChips}</div>` : `<div class="stock-label">ยังไม่มีข้อมูลรหัสสินค้า/สต๊อก</div>`}
     </div>
   </div>`;
@@ -756,35 +730,42 @@ function giftCardHtml(m){
     </div>
   </div>`;
 }
+function priceOptionPrice(m, sel){
+  return sel===-1 ? m.special : m.tiers[sel].p;
+}
 function tierHtml(m){
-  const sel = selectedTier[m.id] ?? 0;
-  const chips = m.tiers.map((t,i)=>`<div class="chip ${i===sel?'sel':''}" onclick="event.stopPropagation();selectTier('${m.id}',${i})">฿${t.m}/ด.</div>`).join('');
-  const t = m.tiers[sel];
-  const savedAmt = m.normal - t.p;
+  const sel = selectedTier[m.id] ?? -1; // -1 = cash special price, otherwise index into m.tiers
+  const cashChip = `<div class="chip ${sel===-1?'sel':''}" onclick="event.stopPropagation();selectPriceOption('${m.id}',-1)">เครื่องเปล่าราคาพิเศษ</div>`;
+  const tierChips = m.tiers.map((t,i)=>`<div class="chip ${sel===i?'sel':''}" onclick="event.stopPropagation();selectPriceOption('${m.id}',${i})">฿${t.m}/ด.</div>`).join('');
+  const price = priceOptionPrice(m, sel);
+  const savedAmt = m.normal - price;
   const pct = Math.min(100, Math.max(4, Math.round((savedAmt / m.normal) * 100)));
   return `
-  <div class="ladder-label">ลูกค้าเบอร์รายเดือน</div>
-  <div class="chips">${chips}</div>
+  <div class="ladder-label">Promotion</div>
+  <div class="chips">${cashChip}${tierChips}</div>
   <div class="ladder-result" id="lr-${m.id}">
-    <div class="lr-price">${fmt(t.p)} บาท</div>
+    <div class="lr-price">${fmt(price)} บาท</div>
     <div class="lr-bar"><div class="lr-fill" style="width:${pct}%"></div></div>
     <div class="lr-save">ประหยัดจากราคาปกติ ${fmt(savedAmt)} บาท</div>
   </div>`;
 }
-function selectTier(id, i){
+function selectPriceOption(id, i){
   selectedTier[id] = i;
   const m = models.find(x=>x.id===id);
-  const t = m.tiers[i];
-  document.querySelectorAll(`#card-${id} .chip`).forEach((c,idx)=>c.classList.toggle('sel', idx===i));
-  const savedAmt = m.normal - t.p;
+  const price = priceOptionPrice(m, i);
+  document.querySelectorAll(`#card-${id} .chip`).forEach((c,idx)=>{
+    // chip 0 is the cash option, chip (tierIndex+1) is each promo rate
+    c.classList.toggle('sel', idx === (i===-1 ? 0 : i+1));
+  });
+  const savedAmt = m.normal - price;
   const pct = Math.min(100, Math.max(4, Math.round((savedAmt / m.normal) * 100)));
   const lr = document.getElementById('lr-'+id);
-  lr.querySelector('.lr-price').textContent = fmt(t.p) + ' บาท';
+  lr.querySelector('.lr-price').textContent = fmt(price) + ' บาท';
   lr.querySelector('.lr-fill').style.width = pct + '%';
   lr.querySelector('.lr-save').textContent = `ประหยัดจากราคาปกติ ${fmt(savedAmt)} บาท`;
-  // the tier discount simulator reads the currently selected tier's price, so refresh it too
-  const breakdownEl = document.getElementById('ds-breakdown-tier-'+id);
-  if(breakdownEl) breakdownEl.innerHTML = tierBreakdownHtml(m);
+  // the shared discount simulator shows the price of whichever option is now selected, so refresh it too
+  const breakdownEl = document.getElementById('ds-breakdown-'+id);
+  if(breakdownEl) breakdownEl.innerHTML = sharedDiscountBreakdownHtml(m);
   // recalc expand height — only applies to collapsible (phone) cards, IoT cards are always-open
   const cardEl = document.getElementById('card-'+id);
   if(cardEl && cardEl.classList.contains('open')){
