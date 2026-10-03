@@ -172,9 +172,11 @@
   .oos-group-title{font-family:var(--display);font-weight:600;font-size:13.5px;margin-bottom:6px;display:flex;align-items:center;gap:6px;}
   .oos-group-title .fullout{background:var(--danger);color:#fff;font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:5px;}
   .oos-row{display:flex;justify-content:space-between;align-items:center;background:var(--card);border:1px solid var(--danger-line);border-radius:10px;padding:9px 12px;margin-bottom:6px;}
+  .oos-row.low{border-color:rgba(245,165,36,.4);}
   .oos-row .oos-left{display:flex;align-items:center;gap:8px;font-size:12.5px;}
   .oos-row .oos-code{font-family:var(--mono);font-size:11px;color:var(--text-faint);}
   .oos-row .oos-days{font-family:var(--mono);font-size:11px;color:var(--danger);font-weight:700;white-space:nowrap;}
+  .oos-row .oos-days.low{color:var(--warn);}
 
   /* ---- modal ---- */
   .overlay{position:fixed;inset:0;background:rgba(6,8,9,0.72);backdrop-filter:blur(2px);z-index:100;display:none;align-items:flex-end;justify-content:center;}
@@ -1169,7 +1171,7 @@ function computeOosGroups(){
   models.forEach(m=>{
     if(isGift(m)) return; // gifts never appear in the out-of-stock summary
     const arr = stock[m.id]||[];
-    const outEntries = arr.filter(c=>Number(c.qty||0)===0);
+    const outEntries = arr.filter(c=>Number(c.qty||0) <= 1);
     if(outEntries.length===0) return;
     const info = modelStockInfo(m.id);
     if(info.out) totalModelsFullyOut++;
@@ -1192,14 +1194,14 @@ function renderOosView(){
   if(groups.length===0){
     el.innerHTML = `<div class="oos-summary-top" style="background:var(--accent-dim);border-color:rgba(23,208,138,.3);">
       <div class="big" style="color:var(--accent);">0</div>
-      <div class="cap">ไม่มีสินค้าหมดสต๊อกในขณะนี้ 🎉</div>
+      <div class="cap">ไม่มีสินค้าหมดหรือใกล้หมดในขณะนี้ 🎉</div>
     </div>`;
     return;
   }
 
   let html = `<div class="oos-summary-top">
     <div class="big">${totalSkuOut}</div>
-    <div class="cap">รหัสสินค้า/สี ที่หมดสต๊อก จาก ${models.filter(m=>!isGift(m)).length} รุ่นที่มีข้อมูล · ${totalModelsFullyOut} รุ่นหมดสต๊อกทั้งหมดทุกสี</div>
+    <div class="cap">รหัสสินค้า/สี ที่หมดหรือเหลือน้อย (≤1 ชิ้น) จาก ${models.filter(m=>!isGift(m)).length} รุ่นที่มีข้อมูล · ${totalModelsFullyOut} รุ่นหมดสต๊อกทั้งหมดทุกสี</div>
   </div>
   <button class="add-btn" id="oosCopyBtn" onclick="copyOosList()" style="background:var(--card-2);color:var(--text);border:1px solid var(--line);">
     <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -1207,15 +1209,20 @@ function renderOosView(){
   </button>`;
 
   html += groups.map(g=>{
-    const rows = g.outEntries.map(c=>`
-      <div class="oos-row">
+    const rows = g.outEntries.map(c=>{
+      const qty = Number(c.qty||0);
+      const isZero = qty===0;
+      const rightLabel = isZero ? daysOutText(c.outSince) : `เหลือ ${qty} เครื่อง`;
+      return `
+      <div class="oos-row ${isZero?'':'low'}">
         <div class="oos-left">
           <span class="dot" style="background:${colorSwatch(c.color)}"></span>
           <span>${escapeHtml(c.color)}</span>
           <span class="oos-code">#${escapeHtml(c.code)}</span>
         </div>
-        <div class="oos-days">${daysOutText(c.outSince)}</div>
-      </div>`).join('');
+        <div class="oos-days ${isZero?'':'low'}">${rightLabel}</div>
+      </div>`;
+    }).join('');
     return `
     <div class="oos-group">
       <div class="oos-group-title">
@@ -1229,20 +1236,22 @@ function renderOosView(){
   el.innerHTML = html;
 }
 
-// Builds a plain-text version of the out-of-stock list, formatted for pasting
-// straight into a LINE chat with colleagues.
+// Builds a plain-text version of the out-of-stock/low-stock list, formatted for
+// pasting straight into a LINE chat with colleagues.
 function buildOosText(){
   const { groups, totalSkuOut, totalModelsFullyOut } = computeOosGroups();
   const dateStr = new Date().toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'2-digit'});
   if(groups.length===0){
-    return `📋 รายการสินค้าหมดสต๊อก (${dateStr})\n\nไม่มีสินค้าหมดสต๊อกในขณะนี้ 🎉`;
+    return `📋 รายการสินค้าหมด/ใกล้หมดสต๊อก (${dateStr})\n\nไม่มีสินค้าหมดหรือใกล้หมดในขณะนี้ 🎉`;
   }
-  let lines = [`📋 รายการสินค้าหมดสต๊อก (${dateStr})`, ''];
+  let lines = [`📋 รายการสินค้าหมด/ใกล้หมดสต๊อก (${dateStr})`, ''];
   groups.forEach(g=>{
     const tag = g.fullyOut ? ' [หมดทั้งรุ่น]' : '';
     lines.push(`${g.model.name}${specLine(g.model) ? ' ' + specLine(g.model) : ''}${tag}`);
     g.outEntries.forEach(c=>{
-      lines.push(`- ${c.color} #${c.code} (${daysOutText(c.outSince)})`);
+      const qty = Number(c.qty||0);
+      const label = qty===0 ? daysOutText(c.outSince) : `เหลือ ${qty} เครื่อง`;
+      lines.push(`- ${c.color} #${c.code} (${label})`);
     });
     lines.push('');
   });
